@@ -1,9 +1,12 @@
 all:	check
 default:	check
 clean:
-		rm -rf worker 
+		rm -rf worker master 
 worker: 
-	gcc -o worker worker.c -lm
+		gcc -o worker worker.c -lm
+master:
+		gcc  master.c -o master
+
 
 # checkpointer.o:checkpointer.c
 # 		gcc -g -O0 -c  -Wall -Werror -fpic -o checkpointer.o checkpointer.c

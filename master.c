@@ -29,7 +29,6 @@ int main(int argc, char **argv)
     int n = 0;
     while (1)
     {
-        // int this_option_optind = optind ? optind : 1;
         int option_index = 0;
         static struct option long_options[] = {
             {"worker_path", required_argument, NULL, 'w'},
@@ -38,6 +37,7 @@ int main(int argc, char **argv)
             {"x_value", required_argument, 0, 'x'},
             {"n_value", required_argument, 0, 'n'},
             {0, 0, 0, 0}};
+
         c = getopt_long(argc, argv, "w:s:m:x:n:",
                         long_options, &option_index);
         if (c == -1)
@@ -51,7 +51,6 @@ int main(int argc, char **argv)
             {
                 worker_path = optarg;
             }
-            // printf("worker_path %s\n", worker_path);
             break;
         case 's':
             num_workers_flag = 1;
@@ -59,7 +58,6 @@ int main(int argc, char **argv)
             {
                 num_workers = atoi(optarg);
             }
-            // printf("num_workers %d \n", num_workers);
             break;
         case 'm':
             wait_mech_flag = 1;
@@ -67,7 +65,6 @@ int main(int argc, char **argv)
             {
                 wait_mech = optarg;
             }
-            // printf("wait_wait_mech %s\n", wait_mech);
             break;
         case 'x':
             x_flag = 1;
@@ -75,7 +72,6 @@ int main(int argc, char **argv)
             {
                 x = atoi(optarg);
             }
-            // printf("x's value is %d\n", x);
             break;
         case 'n':
             n_flag = 1;
@@ -83,10 +79,10 @@ int main(int argc, char **argv)
             {
                 n = atoi(optarg);
             }
-            // printf("n's value is %d\n", n);
             break;
         case '?':
-            if (x_flag == 0 || n_flag == 0 || worker_path_flag == 0 || wait_mech_flag == 0 || num_workers_flag == 0)
+            if (x_flag == 0 || n_flag == 0 || worker_path_flag == 0 ||
+                wait_mech_flag == 0 || num_workers_flag == 0)
             {
                 printf("Not enough arguments\n");
             }
@@ -105,21 +101,20 @@ int main(int argc, char **argv)
     }
     /*Argument Handler Ends*/
 
-    FILE *stdout;
-    // int x = 3;
     double exp_val = 1.0;
 
     int fd[2]; //Read and write file descriptor
-    char readbuffer[200];
-    char parent_string[50];
-    char input_string[50];
 
-    char buf;
-    //int num_workers = 4;
-    int read_flag = 1;
+    //Reads the STDOUT from worker
+    char readbuffer[200];
+
+    //Holds the STDOUT value into this string
     char *str_worker_res;
-    double worker_res = 0.0;
+
+    //The String array which will hold all the worker arguments
     char *argsw[5];
+
+    /*Assigning all the array elements Begins */
     argsw[0] = worker_path;
     argsw[1] = "-x";
 
@@ -127,31 +122,51 @@ int main(int argc, char **argv)
     char n_to_char[5];
     sprintf(x_to_char, "%d", x);
     argsw[2] = x_to_char;
+
     argsw[3] = "-n";
     sprintf(n_to_char, "%d", n);
     argsw[4] = n_to_char;
-    printf("x is %s and n is %s\n", argsw[2], argsw[4]);
-    argsw[5] = NULL;
 
+    argsw[5] = NULL;
+    /*Assigning all the array elements Ends */
+
+    // Total contains the sum of the expression
     double total = 0.0;
+
+    // num temporary holds the n value, to handle (num_workers>n) condition
     int num = n;
-    pid_t childPID;
-    int counter = num_workers;
+
+    //big_num holds n value, to handle (num_workers < n) condition
     int big_num = n;
 
-    //if mechanism is "SELECT"
+    //Contains the Child Process id once fork() happens
+    pid_t childPID;
+
+    //Counter for looping for all the outputs
+    int counter = num_workers;
+
+    /* Select logic Begins*/
     if (strcmp(wait_mech, "select" /*"epoll"*/) == 0)
     {
-        // printf("big num is %d\n", big_num);
+        // While condition to initiate batching, after workers are done
         while (big_num > 0)
         {
+
             num = big_num;
+
+            //Provides a set for Fds
             fd_set rdfs;
+
+            //Keeps the maximum possible of the fds created by FD_SET
             int max_fd = 0;
+
+            // FD arrays for reading and writing fds for different workers
             int rd_ar[num_workers];
             int wt_ar[num_workers];
 
+            // Resets the fd_set
             FD_ZERO(&rdfs);
+
             //sets up all file descriptors for workers
             for (int i = 0; i < num_workers; i++)
             {
@@ -165,15 +180,21 @@ int main(int argc, char **argv)
                 }
             }
 
+            //Createse all the given workers and forks to call all the workers
             for (int i = 0; i < num_workers; i++)
             {
+                //Handling the condition where (num < num_workers)
                 if (num < 1)
                 {
                     break;
                 }
+
+                //Adds the latest n value to the argument list of worker.
                 char tmp_num[20];
                 sprintf(tmp_num, "%d", --num);
                 argsw[4] = tmp_num;
+
+                //Forks a new child to call worker
                 childPID = fork();
                 if (childPID == 0)
                 {
@@ -186,19 +207,22 @@ int main(int argc, char **argv)
                     close(wt_ar[i]);
                 }
             }
-            // printf("finished reading\n");
+            // Finished Reading
 
             struct timeval tv;
             int retval;
             int counter = num_workers;
+
+            //resets num to big num after handling all the workers
             num = big_num;
-            printf("******** n is %d and num is %d\n", n, num);
             while (counter > 0)
             {
+                //handles the case where (num<num_worker)
                 if (num < 1)
                 {
                     break;
                 }
+
                 FD_ZERO(&rdfs);
                 for (int i = 0; i < num_workers; i++)
                 {
@@ -223,107 +247,51 @@ int main(int argc, char **argv)
                         if (FD_ISSET(rd_ar[i], &rdfs))
                         {
 
+                            //reads the whole buffer into readbuffer
                             read(rd_ar[i], readbuffer, sizeof(readbuffer));
-                            // printf("read buffer is %s \n", readbuffer);
 
+                            //Gets the final value by parsing the last value
                             str_worker_res = parse_final_ans(&readbuffer);
-                            // printf("and the final val is%s\n", str_worker_res);
                             double tst = atof(str_worker_res);
-                            printf("tsts ->%lf\n", tst);
                             total = total + tst;
                             close(rd_ar[i]);
-                            rd_ar[i] = 0;
+                            rd_ar[i] = -1;
                             counter--;
                             num--;
-
                             big_num--;
                         }
                     }
                 }
             }
         }
+        printf("Total value for mechanism select is -> %lf\n", total);
     }
-    printf("total value is -> %lf\n", total);
+    /* Select logic Ends*/
 
-    total = 0;
-    num = n;
-    // printf("---------------------------------------\n");
-    //sequential
-    /*for (int i = 1; i <= num_workers; i++)
-    {
-        if (num < 0)
-            break;
-        char tmp_num[20];
-        sprintf(tmp_num, "%d", num--);
-        argsw[4] = tmp_num;
-        printf("argsw[4] is %s\n", argsw[4]);
-        // snprintf(argsw[4], 3, "%d", num);
-        // argsw[4] = (char *)num;
-        //printf("fd values are %d %d \n", fd[0], fd[1]);
-        pipe(fd);
-        childPID = fork();
-        if (childPID >= 0)
-        {
-            if (childPID == 0)
-            {
-                close(fd[0]);
-                // write(fd[1], string, (strlen(string) + 1));
-                printf("childPID is %d\n", childPID);
-                if (dup2(fd[1], STDOUT_FILENO) == -1)
-                {
-                    printf("error in dup2");
-                }
-                int err = 0;
-                // err = execl("./worker", "./worker", "-x3", "-n4", NULL);
-                // args[2] = "-n5";
-                printf("reached here\n");
-                execv("./worker", argsw);
-                perror("execv");
-                printf("woop woop\n");
-                printf("err is %d\n", err);
-                exit(0);
-            }
-            else
-            {
-
-                close(fd[1]);
-                printf("parent id ->\n");
-                sleep(1);
-                // int nbytes = 
-                read(fd[0], readbuffer, sizeof(readbuffer));
-                // printf("read buffer is %s \n", readbuffer);
-
-                str_worker_res = parse_final_ans(&readbuffer);
-                // printf("and the final val is%s\n", str_worker_res);
-                double tst = atof(str_worker_res);
-                printf("tsts ->%lf\n", tst);
-                total = total + tst;
-            }
-            // gets(input_string);
-            // printf("input _string is %s \n", input_string);
-        }
-    }*/
-
-    // printf("total value is -> %lf\n", total);
-
+    //Resetting the value for next mechanism
     total = 0;
     num = n;
     big_num = n;
-    printf("---------------------------------------\n");
-    int read_counter = 1;
 
+    /* Epoll logic Begins*/
     if (strcmp(wait_mech, "epoll") == 0)
     {
         while (big_num > 0)
         {
             num = big_num;
 
+            // ongoing Reads and Writes FD
             int e_rd;
             int e_wt;
+
+            // Reads and writes FD for all workers
             int rd_ar[num_workers];
             int wt_ar[num_workers];
+
             int max_fd = 0;
+
             int counter = num_workers;
+
             int retval;
 
             struct epoll_event ev, events[100];
@@ -363,13 +331,13 @@ int main(int argc, char **argv)
                 char tmp_num[20];
                 if (num < 1)
                     break;
+
                 sprintf(tmp_num, "%d", --num);
                 argsw[4] = tmp_num;
                 childPID = fork();
                 if (childPID == 0)
                 {
                     close(rd_ar[i]);
-                    printf("read called %d\n", ++read_counter);
                     dup2(wt_ar[i], STDOUT_FILENO);
                     execv("./worker", argsw);
                 }
@@ -377,23 +345,17 @@ int main(int argc, char **argv)
                 {
                     close(wt_ar[i]);
                 }
-                // printf("finished reading for epoll-------------------------\n");
             }
-            // counter--;
             num = big_num;
             while (counter > 0)
             {
-                printf("num is %d\n", num);
                 if (num < 1)
                 {
                     break;
                 }
-                printf("counter value is %d\n", counter);
                 int eve_i;
                 int eve_n = epoll_wait(fd_epoll, events, 100, -1);
                 int another_fd_flag = 0;
-                printf("eve_n is %d\n", eve_n);
-                // eve_n = 1;
                 if (eve_n <= 0)
                 {
                     printf("Incorrect result on epoll_wait\n");
@@ -405,52 +367,40 @@ int main(int argc, char **argv)
                     {
                         another_fd_flag = 0;
                         e_rd = events[eve_i].data.fd;
-                        // int fd_index = -1;
                         for (int i = 0; i < num_workers; i++)
                         {
                             if (rd_ar[i] == e_rd)
                             {
-                                printf("\n");
                                 another_fd_flag = 1;
                                 rd_ar[i] = -1;
                                 counter--;
                                 num--;
                                 big_num--;
-                                printf("--------probably need to do something-----------\n");
                             }
                         }
                         if (another_fd_flag)
                         {
 
                             read(e_rd, readbuffer, sizeof(readbuffer));
-                            // printf("read buffer is %s \n", readbuffer);
 
                             str_worker_res = parse_final_ans(&readbuffer);
-                            printf("and the final val is%s\n", str_worker_res);
                             double tst = atof(str_worker_res);
-                            printf("tsts ->%lf\n", tst);
                             total = total + tst;
-                            // close(rd_ar[eve_i]);
                             close(e_rd);
-                            printf("total is %lf\n", total);
-                            // rd_ar[i] = 0;
                         }
                     }
                 }
             }
         }
+        printf("Total value for mechanism epoll is -> %lf\n", total);
     }
-
-    printf("total -> %lf\n", total);
-    printf("Ending-----\n");
+    /* Epoll logic Ends*/
 
     return 0;
 }
 
 char *parse_final_ans(char *readbuffer)
 {
-
-    // printf("readbuffer ->%s\n", readbuffer);
     char final_val[30];
     int final_val_index = 0;
     int index_buf = 0;
@@ -464,7 +414,6 @@ char *parse_final_ans(char *readbuffer)
         }
         if (readbuffer[index_buf] == '\n' && final_flag == 1)
         {
-            // printf("read buffer -> %c", readbuffer[index_buf]);
             read_flag = 0;
             break;
         }
@@ -474,7 +423,6 @@ char *parse_final_ans(char *readbuffer)
         }
     }
     final_val[final_val_index] = '\0';
-    // printf("final val is%syo\n", final_val);
     char *test = final_val;
 
     return test;
