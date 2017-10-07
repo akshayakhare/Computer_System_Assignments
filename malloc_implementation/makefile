@@ -8,7 +8,7 @@ clean:
 	rm -rf libmalloc.so malloc.o test1.o test1 blockArea.o
 
 libmalloc.so: malloc.o 
-	$(CC) $(CFLAGS) -shared -Wl,--unresolved-symbols=ignore-all $< -o $@
+	$(CC) $(CFLAGS) -shared -Wl,--unresolved-symbols=ignore-all  $< -o $@ -lm
 
 test1: test1.o
 	$(CC) $(CFLAGS) $< -o $@

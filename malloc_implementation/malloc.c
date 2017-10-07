@@ -1,138 +1,182 @@
-#include <assert.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/mman.h>
 #include <unistd.h>
-#include "block_Header.h"
-// #include "blockArea.o"
+#include <string.h>
+#include <math.h>
 
-#define align8(x) (((((x)-1) >> 3) << 3) + 8)
-
-typedef struct MallocHeader
+void initialize_heap();
+void print_list();
+int get_available_index(int list_pos);
+typedef struct BlockHeader bheader;
+struct BlockHeader
 {
   size_t size;
-} MallocHeader;
+  int filled;
+  struct BlockHeader *next;
+  struct BlockHeader *prev;
+};
 
-void *calloc(size_t nmemb, size_t size)
+#define BLOCK_SIZE sizeof(struct BlockHeader)
+size_t PAGESIZE;
+
+bheader *base = NULL;
+
+// We take size as 8 because we start with 32, 64, 128 till 4096
+bheader *freelist[8];
+
+//2^5 is 32 that's why we need to add 5 to the array index of freelists
+//elements, enabling them to handle the base 2 arithmetic
+int LOG_OFFSET_HANDLER = 5;
+
+__attribute__((constructor)) void get_pagesize()
 {
-  return NULL;
+  PAGESIZE = sysconf(_SC_PAGESIZE);
 }
-
-// void *buddyAlloc(size_t size)
-// {
-//   memset();
-// }
 
 void *malloc(size_t size)
 {
-  bstruct bs, current;
   char buf[1024];
-  if (size <= 0)
+  size_t header_size = sizeof(bheader);
+  size_t actual_size = header_size + size;
+
+  if (base == NULL)
   {
-    printf("Size cannot be zero or less \n");
-    exit(1);
+    initialize_heap();
   }
-  // TODO: Validate size. I guess done?
-  size_t s = align8(size);
-  snprintf(buf, 1024, "%s:%d Tell me, did you reach here? base ->%p \n",
-           __FILE__, __LINE__, base);
-  write(STDOUT_FILENO, buf, strlen(buf) + 1);
-  if (base)
+
+  // If size too big to handle, return NULL
+  if (actual_size > PAGESIZE)
   {
-    current = base;
-    bs = find_block(&current, s);
-    snprintf(buf, 1024, "%s:%d bs is %p, size  \n",
-             __FILE__, __LINE__, bs);
+    return NULL;
+  }
+
+  int list_pos = log2(actual_size) - LOG_OFFSET_HANDLER + 1;
+
+  snprintf(buf, 1024, "%s:%d size is %zu and list_pos is %d \n",
+           __FILE__, __LINE__, actual_size, list_pos);
+  write(STDOUT_FILENO, buf, strlen(buf) + 1);
+
+  bheader *temp, *temp_pair;
+  if (freelist[list_pos] != NULL)
+  {
+    temp = freelist[list_pos];
+    snprintf(buf, 1024, "%s:%d Free list has value temp->size %zu %d %p\n",
+             __FILE__, __LINE__, temp->size, temp->filled, temp->next);
     write(STDOUT_FILENO, buf, strlen(buf) + 1);
-    if (bs)
+    while (temp->filled != 0 && temp->next != NULL)
+      temp = temp->next;
+    if (temp && temp->filled == 0)
     {
-      snprintf(buf, 1024, "%s:%d bs SIZE IS  is %zu, block suze is %zu  and size %zu \n",
-               __FILE__, __LINE__, (bs->size - s), (BLOCK_SIZE + 8), s);
+      temp->filled = 1;
+      print_list();
+      return temp;
+    }
+    //DO SOMETHING
+  }
+
+  //Find the appropriate block to start breaking
+  int list_check = get_available_index(list_pos);
+
+  while (list_check != list_pos)
+  {
+    snprintf(buf, 1024, "\nValue ->?%p %d\n", temp_pair, list_check);
+    write(STDOUT_FILENO, buf, strlen(buf) + 1);
+    temp = freelist[list_check];
+    temp->size = temp->size / 2;
+    temp->filled = 0;
+    temp_pair = (bheader *)((char *)temp + temp->size);
+    temp_pair->size = temp->size;
+    temp_pair->filled = 0;
+
+    // The case for the whole block, when block is complete 4096 bytes
+    if (freelist[list_check]->next == NULL)
+    {
+      snprintf(buf, 1024, "Should be reaching here once!!! %d\n", list_check);
       write(STDOUT_FILENO, buf, strlen(buf) + 1);
-      //we split
-      if ((bs->size - (BLOCK_SIZE + s)) >= (BLOCK_SIZE + 8))
-      {
-        split_block(bs, s);
-      }
-      else
-      {
-        bs = extend_heap(base, s);
-        if (!bs)
-          return (NULL);
-      }
-      // bs->free = 0;
+      freelist[list_check] = NULL;
     }
     else
     {
-      bs = extend_heap(base, s);
-      if (!bs)
-        return (NULL);
+      freelist[list_check]->prev = freelist[list_check];
+      freelist[list_check] = freelist[list_check]->next;
     }
+    temp->next = temp_pair;
+    temp_pair->prev = temp;
+    list_check = list_check - 1;
+    freelist[list_check] = temp;
+    print_list();
   }
-  else
+
+  // Now we are at the point where we found the right block, and we
+  // need to assign it.
+
+  temp = freelist[list_pos];
+  while (temp->filled != 0 || temp->next != NULL)
+    temp = temp->next;
+  bheader *actual_block = temp;
+  actual_block->filled = 1;
+  snprintf(buf, 1024, "freelist[]: pos %d, %p %p %zu %d\n",
+           list_pos, actual_block->next, actual_block->prev, actual_block->size,
+           actual_block->filled);
+  write(STDOUT_FILENO, buf, strlen(buf) + 1);
+
+  if (freelist[list_pos]->next == NULL)
   {
-    snprintf(buf, 1024, "%s:%d I just need to see something \n",
-             __FILE__, __LINE__);
-    write(STDOUT_FILENO, buf, strlen(buf) + 1);
-    bs = extend_heap(NULL, s);
-    snprintf(buf, 1024, "%s:%d Error before this \n",
-             __FILE__, __LINE__);
-    write(STDOUT_FILENO, buf, strlen(buf) + 1);
-    if (!bs)
-      return NULL;
-    base = bs;
+    freelist[list_pos] = NULL;
   }
-  return bs;
+  // else
+  // {
+  //   freelist[list_pos]->prev = freelist[list_pos];
+  //   freelist[list_pos] = freelist[list_pos]->next;
+  // }
 
-  void *block;
-  block = sbrk(0);
+  // actual_block->next = NULL;
+  // actual_block->filled = 1;
 
-  if (sbrk(s + sizeof(bstruct)) == (void *)-1)
-    return NULL;
-  // char buf2[1024];
-  // size_t allocSize = size + sizeof(MallocHeader);
+  print_list();
 
-  snprintf(buf, 1024, "%s:%d block all... %p and other things %ld and size %ld and also %ld \n",
-           __FILE__, __LINE__, block, sizeof(block), s, s + sizeof(bstruct));
+  snprintf(buf, 1024, "-----------------Done-------------\n", list_pos);
   write(STDOUT_FILENO, buf, strlen(buf) + 1);
-  return block;
-
-  // void *ret = mmap(block, allocSize, PROT_READ | PROT_WRITE,
-  //                  MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
-  // assert(ret != MAP_FAILED);
-
-  // // We can't use printf here because printf internally calls `malloc` and thus
-  // // we'll get into an infinite recursion leading to a segfault.
-  // // Instead, we first write the message into a string and then use the `write`
-  // // system call to display it on the console.
-  // snprintf(buf2, 1024, "%s:%d malloc(%zu): Allocated %zu bytes at %p\n",
-  //          __FILE__, __LINE__, size, allocSize, ret);
-  // write(STDOUT_FILENO, buf2, strlen(buf2) + 1);
-
-  // MallocHeader *hdr = (MallocHeader *)ret;
-  // hdr->size = allocSize;
-
-  // return ret + sizeof(MallocHeader);
+  return actual_block;
 }
 
-void free(void *ptr)
+int get_available_index(int pos)
 {
-  MallocHeader *hdr = ptr - sizeof(MallocHeader);
-  // We can't use printf here because printf internally calls `malloc` and thus
-  // we'll get into an infinite recursion leading to a segfault.
-  // Instead, we first write the message into a string and then use the `write`
-  // system call to display it on the console.
+  int i;
+  for (i = pos; i <= 8; i++)
+  {
+    if (freelist[i] != NULL)
+      return i;
+  }
+  return i;
+}
+
+//Prints the  whole list, line by line
+void print_list()
+{
   char buf[1024];
-  snprintf(buf, 1024, "%s:%d free(%p): Freeing %zu bytes from %p\n",
-           __FILE__, __LINE__, ptr, hdr->size, hdr);
+  snprintf(buf, 1024, "\nindex :      range: Address \n");
   write(STDOUT_FILENO, buf, strlen(buf) + 1);
-  munmap(hdr, hdr->size);
+  int val = 32;
+
+  for (int i = 0; i < 8; i++)
+  {
+    // snprintf(buf, 1024, "freelist[%d]: %d: %p %zu %p %p %d\n", i, val,
+    //          freelist[i], freelist[i]->size, freelist[i]->next,
+    //          freelist[i]->prev, freelist[i]->filled);
+    snprintf(buf, 1024, "freelist[%d]: %d: %p  \n", i, val,
+             freelist[i]);
+    write(STDOUT_FILENO, buf, strlen(buf) + 1);
+    val = val * 2;
+  }
 }
 
-void *realloc(void *ptr, size_t size)
+//Should be initialized in the first call
+void initialize_heap()
 {
-  // Allocate new memory (if needed) and copy the bits from old location to new.
-
-  return NULL;
+  base = (bheader *)sbrk(PAGESIZE);
+  freelist[7] = base;
+  freelist[7]->size = PAGESIZE;
+  freelist[7]->filled = 0;
+  freelist[7]->next = NULL;
+  freelist[7]->prev = NULL;
 }
