@@ -15,6 +15,14 @@ struct BlockHeader
   struct BlockHeader *prev;
 };
 
+// typedef struct ListHeader lheader;
+
+// struct Listheader
+// {
+//   int filled;
+//   bheader *blockheader;
+// }
+
 #define BLOCK_SIZE sizeof(struct BlockHeader)
 size_t PAGESIZE;
 
@@ -55,19 +63,22 @@ void *malloc(size_t size)
            __FILE__, __LINE__, actual_size, list_pos);
   write(STDOUT_FILENO, buf, strlen(buf) + 1);
 
-  bheader *temp, *temp_pair;
+  bheader *temp, *temp_pair, *temp_handler;
   if (freelist[list_pos] != NULL)
   {
     temp = freelist[list_pos];
+    while (temp->filled != 0 && temp->next != NULL)
+      temp = temp->next;
+
     snprintf(buf, 1024, "%s:%d Free list has value temp->size %zu %d %p\n",
              __FILE__, __LINE__, temp->size, temp->filled, temp->next);
     write(STDOUT_FILENO, buf, strlen(buf) + 1);
-    while (temp->filled != 0 && temp->next != NULL)
-      temp = temp->next;
     if (temp && temp->filled == 0)
     {
       temp->filled = 1;
       print_list();
+      snprintf(buf, 1024, "-----------------Done-------------\n", list_pos);
+      write(STDOUT_FILENO, buf, strlen(buf) + 1);
       return temp;
     }
     //DO SOMETHING
@@ -75,6 +86,36 @@ void *malloc(size_t size)
 
   //Find the appropriate block to start breaking
   int list_check = get_available_index(list_pos);
+
+  snprintf(buf, 1024, "%s:%d list check is %d \n",
+           __FILE__, __LINE__, list_check);
+  write(STDOUT_FILENO, buf, strlen(buf) + 1);
+
+  if (list_check == 8)
+  {
+    bheader *new_block = sbrk(PAGESIZE);
+    if (!new_block)
+      return NULL;
+
+    new_block->filled = 1;
+    new_block->size = 4096;
+    new_block->next = NULL;
+    new_block->prev = NULL;
+    if (freelist[7])
+    {
+      temp = freelist[7];
+      while (temp->next != NULL)
+        temp = temp->next;
+      temp->next = new_block;
+    }
+
+    else
+      freelist[7] = new_block;
+    print_list();
+    snprintf(buf, 1024, "-----------------Done-------------\n", list_pos);
+    write(STDOUT_FILENO, buf, strlen(buf) + 1);
+    return new_block;
+  }
 
   while (list_check != list_pos)
   {
@@ -90,19 +131,41 @@ void *malloc(size_t size)
     // The case for the whole block, when block is complete 4096 bytes
     if (freelist[list_check]->next == NULL)
     {
-      snprintf(buf, 1024, "Should be reaching here once!!! %d\n", list_check);
-      write(STDOUT_FILENO, buf, strlen(buf) + 1);
+      // snprintf(buf, 1024, "Should be reaching here once!!! %d\n", list_check);
+      // write(STDOUT_FILENO, buf, strlen(buf) + 1);
       freelist[list_check] = NULL;
     }
     else
     {
-      freelist[list_check]->prev = freelist[list_check];
+      // freelist[list_check]->prev = freelist[list_check];
       freelist[list_check] = freelist[list_check]->next;
+      // snprintf(buf, 1024, "freelist orig!!! %p\n", freelist[list_check]->next);
+      // write(STDOUT_FILENO, buf, strlen(buf) + 1);
+      freelist[list_check]->next = NULL;
+      freelist[list_check]->prev = NULL;
+      // freelist[list_check]->next = freelist[list_check];
     }
+    snprintf(buf, 1024, "PRiNT IT!!!\n");
+    write(STDOUT_FILENO, buf, strlen(buf) + 1);
+    print_list();
     temp->next = temp_pair;
+    // temp_pair->prev = temp;
+    // temp_pair->prev = NULL; experimenting
     temp_pair->prev = temp;
     list_check = list_check - 1;
-    freelist[list_check] = temp;
+
+    temp_handler = freelist[list_check];
+    while (temp_handler && temp_handler->next != NULL)
+      temp_handler = temp_handler->next;
+    if (!temp_handler)
+    {
+      temp_handler = temp;
+      freelist[list_check] = temp_handler;
+    }
+    else
+    {
+      temp_handler->next = temp;
+    }
     print_list();
   }
 
@@ -139,12 +202,29 @@ void *malloc(size_t size)
   return actual_block;
 }
 
+// int get_available_index(int pos)
+// {
+//   int i;
+//   for (i = pos; i <= 8; i++)
+//   {
+//     if (freelist[i] != NULL)
+//       return i;
+//   }
+//   return i;
+// }
+
 int get_available_index(int pos)
 {
   int i;
-  for (i = pos; i <= 8; i++)
+  bheader *get_temp;
+  for (i = pos; i < 8; i++)
   {
-    if (freelist[i] != NULL)
+    get_temp = freelist[i];
+    if (get_temp == NULL)
+      continue;
+    while (get_temp != NULL && get_temp->filled != 0)
+      get_temp = get_temp->next;
+    if (get_temp != NULL && get_temp->filled == 0)
       return i;
   }
   return i;
@@ -160,11 +240,23 @@ void print_list()
 
   for (int i = 0; i < 8; i++)
   {
-    // snprintf(buf, 1024, "freelist[%d]: %d: %p %zu %p %p %d\n", i, val,
-    //          freelist[i], freelist[i]->size, freelist[i]->next,
-    //          freelist[i]->prev, freelist[i]->filled);
-    snprintf(buf, 1024, "freelist[%d]: %d: %p  \n", i, val,
+    snprintf(buf, 1024, "freelist[%d]: %d: %p :", i, val,
              freelist[i]);
+    write(STDOUT_FILENO, buf, strlen(buf) + 1);
+
+    if (freelist[i])
+    {
+      bheader *temp = freelist[i];
+      while (temp != NULL)
+      {
+        snprintf(buf, 1024, " %p n:%p p:%p %d -->",
+                 temp, temp->next,
+                 temp->prev, temp->filled);
+        write(STDOUT_FILENO, buf, strlen(buf) + 1);
+        temp = temp->next;
+      }
+    }
+    snprintf(buf, 1024, "\n");
     write(STDOUT_FILENO, buf, strlen(buf) + 1);
     val = val * 2;
   }
